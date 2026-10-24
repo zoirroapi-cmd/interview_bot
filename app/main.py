@@ -1,7 +1,7 @@
 import asyncio
 import logging
 import os
-from datetime import datetime, time, timedelta
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from aiogram import Bot, Dispatcher, F
@@ -10,7 +10,11 @@ from aiogram.filters import Command, CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import (
-    BotCommand, CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message,
+    BotCommand,
+    CallbackQuery,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    Message,
 )
 
 from app import db, llm
@@ -89,7 +93,7 @@ def list_markup(rows, page: int, total: int, topic_id: int,
     body = []
     for i, r in enumerate(rows, start=page * PAGE_SIZE + 1):
         mark = conf_icon(r["confidence"])
-        if "due" in r.keys() and r["due"]:
+        if r.get("due"):
             mark += "🔔"
         body.append([(f"{mark} {i}. {short(r['text'])}", f"{pick_prefix}:{r['id']}")])
     pages = max(1, -(-total // PAGE_SIZE))
