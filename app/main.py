@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from aiogram import Bot, Dispatcher, F
+from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import Command, CommandStart
 from aiogram.fsm.context import FSMContext
@@ -624,7 +625,8 @@ async def reminder_loop(bot: Bot) -> None:
 async def main() -> None:
     logging.basicConfig(level=logging.INFO)
     await db.init_pool()
-    bot = Bot(os.environ["BOT_TOKEN"])
+    session = AiohttpSession(proxy=os.getenv("TELEGRAM_PROXY") or None)
+    bot = Bot(os.environ["BOT_TOKEN"], session=session)
     await bot.set_my_commands([
         BotCommand(command="start", description="Меню"),
         BotCommand(command="settings", description="Цель и напоминания"),
