@@ -1,10 +1,7 @@
 
 import json
 
-import pytest
-
 from app.llm import calc_score, parse_evaluation
-
 
 ANSWER = "NAT позволяет нескольким устройствам использовать один публичный IP."
 
