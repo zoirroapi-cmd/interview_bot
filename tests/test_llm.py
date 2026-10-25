@@ -1,4 +1,3 @@
-
 import json
 
 from app.llm import calc_score, parse_evaluation
@@ -27,7 +26,7 @@ def test_covered_gets_full_score():
 
 def test_partial_gets_half_score():
     result = parse_evaluation(
-        make_raw("partial", "NAT использует публичный IP"),
+        make_raw("partial", "использовать один публичный IP"),
         ["NAT позволяет нескольким устройствам использовать один публичный IP."],
         ANSWER,
     )
@@ -59,16 +58,18 @@ def test_contradicted_loses_points_but_score_is_not_negative():
     assert result["score"] == 0.0
 
 
-def test_invalid_quote_does_not_turn_covered_into_missing():
+def test_invalid_quote_turns_covered_into_missing():
     result = parse_evaluation(
         make_raw("covered", "совершенно посторонняя цитата"),
         ["NAT позволяет нескольким устройствам использовать один публичный IP."],
         ANSWER,
     )
 
-    assert result["items"][0]["status"] == "covered"
-    assert result["items"][0]["quote"] == ""
-    assert result["score"] == 10.0
+    item = result["items"][0]
+    assert item["status"] == "missing"
+    assert item["quote"] == ""
+    assert item["note"]
+    assert result["score"] == 0.0
 
 
 def test_calc_score_for_mixed_statuses():

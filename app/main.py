@@ -164,7 +164,8 @@ async def ensure_key_points(q) -> list[str]:
     points = await db.get_key_points(q["id"])
     if points:
         return points
-    points = await llm.generate_key_points(q["text"])
+    topic = await db.get_topic_name(q["topic_id"])
+    points = await llm.generate_key_points(q["text"], topic)
     await db.set_key_points(q["id"], points)
     return points
 
