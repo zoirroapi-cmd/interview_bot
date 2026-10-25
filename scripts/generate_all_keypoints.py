@@ -20,19 +20,21 @@ async def main() -> None:
     try:
         rows = await conn.fetch(
             """
-            SELECT id, text FROM questions
-            WHERE key_points IS NULL OR key_points = ''
-            ORDER BY id
+            SELECT q.id, q.text, t.name AS topic
+            FROM questions q
+            JOIN topics t ON t.id = q.topic_id
+            WHERE q.key_points IS NULL OR q.key_points = ''
+            ORDER BY q.id
             """
         )
         log.info("Вопросов без тезисов: %s", len(rows))
 
         for i, row in enumerate(rows, start=1):
-            qid, text = row["id"], row["text"]
+            qid, text, topic = row["id"], row["text"], row["topic"]
             log.info("[%s/%s] id=%s | %s", i, len(rows), qid, text[:80])
 
             try:
-                points = await llm.generate_key_points(text)
+                points = await llm.generate_key_points(text, topic)
                 await conn.execute(
                     "UPDATE questions SET key_points = $2 WHERE id = $1",
                     qid, "\n".join(points),

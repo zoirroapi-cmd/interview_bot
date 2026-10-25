@@ -41,6 +41,9 @@ EVAL_SYSTEM = """Ты проверяешь ответ пользователя �
 KEYPOINTS_SYSTEM = """Ты опытный DevOps-инженер, который проводит технические собеседования.
 Сформулируй 3-5 ключевых тезисов правильного ответа на вопрос.
 Каждый тезис - одно законченное предложение с одной проверяемой мыслью, только факты.
+Вопрос относится к теме, которая указана в сообщении. Отвечай строго в контексте этой темы:
+например, "Service" в теме Kubernetes - это объект Kubernetes, а не сервис вообще.
+Каждый элемент массива - строка, а не объект.
 Верни только JSON-массив строк, без текста до и после."""
 
 _token: str | None = None
@@ -177,15 +180,16 @@ def parse_evaluation(raw: str, theses: list[str], answer: str) -> dict:
         if status == "missing":
             quote = ""
         elif not _quote_ok(quote, answer):
-            # Не меняем смысловую оценку автоматически:
-            # цитата может не пройти проверку из-за несовпадения
-            # формулировок или особенностей нормализации.
-            note = "Цитата не прошла проверку соответствия ответу"
+            # модель утверждает, что тезис раскрыт, но подтвердить это
+            # цитатой из ответа не может: не засчитываем
+            status = "missing"
+            quote = ""
+            note = "Цитата не найдена в ответе, тезис не засчитан"
 
         items.append({
             "thesis": thesis,
             "status": status,
-            "quote": quote if _quote_ok(quote, answer) else "",
+            "quote": quote,
             "note": note,
         })
 
@@ -208,13 +212,15 @@ async def evaluate(question: str, theses: list[str], answer: str) -> dict:
         return result
     raise ValueError(f"не удалось разобрать ответ модели: {last_error}")
 
-
-async def generate_key_points(question: str) -> list[str]:
-    raw, _ = await _chat(KEYPOINTS_SYSTEM, f"Вопрос: {question}")
+async def generate_key_points(question: str, topic: str) -> list[str]:
+    raw, _ = await _chat(KEYPOINTS_SYSTEM, f"Тема: {topic}\nВопрос: {question}")
     start, end = raw.find("["), raw.rfind("]")
     if start == -1 or end < start:
         raise ValueError("в ответе модели нет списка тезисов")
-    points = [str(p).strip() for p in json.loads(raw[start:end + 1]) if str(p).strip()]
+    items = json.loads(raw[start:end + 1])
+    if not isinstance(items, list) or not all(isinstance(p, str) for p in items):
+        raise ValueError("тезисы должны быть списком строк")
+    points = [p.strip() for p in items if p.strip()]
     if not 2 <= len(points) <= 8:
         raise ValueError(f"странное число тезисов: {len(points)}")
     return points
