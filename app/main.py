@@ -78,16 +78,6 @@ def menu_markup() -> InlineKeyboardMarkup:
     )
 
 
-def goal_markup(prefix: str) -> InlineKeyboardMarkup:
-    return markup([(str(n), f"{prefix}:{n}") for n in GOALS])
-
-
-def time_markup(prefix: str) -> InlineKeyboardMarkup:
-    rows = chunk([(t, f"{prefix}:{t}") for t in TIMES], 3)
-    rows.append([("🔕 Без напоминаний", f"{prefix}:off")])
-    return markup(*rows)
-
-
 def list_markup(rows, page: int, total: int, topic_id: int,
                 nav_prefix: str, pick_prefix: str, back: tuple[str, str]) -> InlineKeyboardMarkup:
     """Список вопросов постранично: кнопка на вопрос + стрелки + «назад»."""
