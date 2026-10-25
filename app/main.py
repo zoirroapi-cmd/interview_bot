@@ -175,7 +175,15 @@ async def ensure_key_points(q) -> list[str]:
     if points:
         return points
     topic = await db.get_topic_name(q["topic_id"])
-    points = await llm.generate_key_points(q["text"], topic)
+    last_error = None
+    for _ in range(2):
+        try:
+            points = await llm.generate_key_points(q["text"], topic)
+            break
+        except ValueError as e:
+            last_error = e
+    else:
+        raise ValueError(f"не удалось получить тезисы: {last_error}")
     await db.set_key_points(q["id"], points)
     return points
 
