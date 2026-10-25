@@ -104,16 +104,12 @@ def result_markup() -> InlineKeyboardMarkup:
 def format_result(result: dict, days: int, gain: int, xp: int, streak: int) -> str:
     lines = [
         f"Оценка: {result['score']:g}/10",
-        "✅ раскрыто  🟡 частично  ⬜ нет  ❌ неверно",
         "",
-    ]
-    for it in result["items"]:
-        lines.append(f"{STATUS_ICON[it['status']]} {it['thesis']}")
-        if it["quote"]:
-            lines.append(f"    «{it['quote']}»")
-        if it["note"]:
-            lines.append(f"    ⚠️ {it['note']}")
-    lines += [
+        "📘 Эталон:",
+        result.get("reference") or "—",
+        "",
+        "🔍 Сравнение с твоим ответом:",
+        result.get("comparison") or "—",
         "",
         f"+{gain} XP (всего {xp}), серия: {streak} дн.",
         f"Вернусь к этому вопросу через {days} дн.",
