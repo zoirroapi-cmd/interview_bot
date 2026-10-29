@@ -16,41 +16,25 @@ CHAT_URL = "https://api.giga.chat/v1/chat/completions"
 
 WEIGHTS = {"covered": 1.0, "partial": 0.5, "missing": 0.0, "contradicted": -1.0}
 
-
 EVAL_SYSTEM = """Ты проверяешь ответ пользователя на технический вопрос по DevOps / Kubernetes.
 
-Тебе даны вопрос, эталонные тезисы и ответ пользователя.
+Тебе даны вопрос и ответ пользователя.
 
-Для каждого эталонного тезиса определи статус:
-- covered — тезис раскрыт правильно;
-- partial — тезис раскрыт частично или неточно;
-- missing — тезис отсутствует в ответе;
-- contradicted — пользователь утверждает обратное или допускает противоречащую тезису ошибку.
-
-Для статусов covered, partial и contradicted приведи цитату из ответа пользователя, подтверждающую выбранный статус.
-Цитата должна действительно присутствовать в ответе пользователя.
-Для missing верни пустую цитату.
-Если сомневаешься, не придумывай цитату и не засчитывай тезис как covered.
-
-Напиши короткий эталонный ответ в поле reference.
-В поле comparison кратко объясни качество ответа пользователя.
-Не рассчитывай score: оценку посчитает программа.
+Сделай следующее:
+1. Напиши короткий эталонный ответ (3–6 предложений). Только факты, без воды.
+2. Сравни ответ пользователя с эталоном:
+   - что сказано правильно;
+   - что упущено или сказано неточно;
+   - есть ли грубые ошибки.
+3. Поставь общую оценку от 0 до 10.
 
 Верни только JSON, без текста до и после:
 {
-  "reference": "Эталонный ответ",
-  "comparison": "Краткое сравнение",
-  "items": [
-    {
-      "n": 1,
-      "status": "covered",
-      "quote": "Цитата из ответа пользователя",
-      "note": "Краткое пояснение"
-    }
-  ]
+  "reference": "эталонный ответ...",
+  "comparison": "сравнение...",
+  "score": 7.5
 }
 """
-
 
 KEYPOINTS_SYSTEM = """Ты опытный DevOps-инженер, который проводит технические собеседования.
 Сформулируй 3-5 ключевых тезисов правильного ответа на вопрос.
@@ -152,73 +136,11 @@ def _extract_json(text: str):
     return json.loads(text[start:end + 1])
 
 
-
 def calc_score(items: list[dict]) -> float:
-    if not items:
-        return 0.0
-
-    total = sum(
-        WEIGHTS.get(item.get("status"), 0.0)
-        for item in items
-    )
-
-    score = max(0.0, total / len(items) * 10)
-    return round(score, 1)
+    total = sum(WEIGHTS[i["status"]] for i in items)
+    return max(0.0, round(total / len(items) * 10, 1))
 
 
-
-def parse_evaluation(
-    raw: str,
-    key_points: list[str],
-    answer: str,
-) -> dict:
-    data = _extract_json(raw)
-    raw_items = data.get("items", [])
-
-    items = []
-
-    for index, _ in enumerate(key_points):
-        item = (
-            raw_items[index]
-            if index < len(raw_items) and isinstance(raw_items[index], dict)
-            else {}
-        )
-
-        status = item.get("status", "missing")
-        quote = (item.get("quote") or "").strip()
-        note = (item.get("note") or "").strip()
-
-        if status not in {
-            "covered",
-            "partial",
-            "missing",
-            "contradicted",
-        }:
-            status = "missing"
-
-        if status in {"covered", "partial", "contradicted"} and not _quote_ok(quote, answer):
-            status = "missing"
-            quote = ""
-            note = note or "Цитата не найдена в ответе пользователя."
-
-        if status == "missing":
-            quote = ""
-
-        items.append({
-            "n": index + 1,
-            "status": status,
-            "quote": quote,
-            "note": note,
-        })
-
-    score = calc_score(items)
-
-    return {
-        "reference": (data.get("reference") or "").strip(),
-        "comparison": (data.get("comparison") or "").strip(),
-        "score": score,
-        "items": items,
-    }
 def confidence_from_score(score: float) -> int:
     if score < 3:
         return 1
@@ -229,31 +151,34 @@ def confidence_from_score(score: float) -> int:
     if score < 9:
         return 4
     return 5
+
+
+
+def parse_evaluation(raw: str, answer: str) -> dict:
+    data = _extract_json(raw)
+    score = float(data.get("score", 0))
+    score = max(0.0, min(10.0, round(score, 1)))
+    return {
+        "reference": (data.get("reference") or "").strip(),
+        "comparison": (data.get("comparison") or "").strip(),
+        "score": score,
+        "items": [],          # оставляем для совместимости
+    }
+
+
 async def evaluate(question: str, theses: list[str], answer: str) -> dict:
-    user = (
-        f"Вопрос: {question}\n\n"
-        f"Эталонные тезисы:\n"
-        + "\n".join(
-            f"{i}. {thesis}"
-            for i, thesis in enumerate(theses, start=1)
-        )
-        + f"\n\nОтвет пользователя: {answer}"
-    )
-
+    # theses больше не используем, но сигнатуру оставляем
+    user = f"Вопрос: {question}\n\nОтвет пользователя: {answer}"
     last_error = None
-
     for _ in range(2):
         raw, usage = await _chat(EVAL_SYSTEM, user, temperature=0.3)
-
         try:
-            result = parse_evaluation(raw, theses, answer)
+            result = parse_evaluation(raw, answer)
         except ValueError as e:
             last_error = e
             continue
-
         result["usage"] = usage
         return result
-
     raise ValueError(f"не удалось разобрать ответ модели: {last_error}")
 
 async def generate_key_points(question: str, topic: str) -> list[str]:
