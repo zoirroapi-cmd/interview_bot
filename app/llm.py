@@ -196,11 +196,10 @@ def parse_evaluation(
         }:
             status = "missing"
 
-        if status in {"covered", "partial", "contradicted"}:
-            if not _quote_ok(quote, answer):
-                status = "missing"
-                quote = ""
-                note = note or "Цитата не найдена в ответе пользователя."
+        if status in {"covered", "partial", "contradicted"} and not _quote_ok(quote, answer):
+            status = "missing"
+            quote = ""
+            note = note or "Цитата не найдена в ответе пользователя."
 
         if status == "missing":
             quote = ""
