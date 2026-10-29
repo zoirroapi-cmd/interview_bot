@@ -14,29 +14,27 @@ import aiohttp
 AUTH_URL = "https://ngw.devices.sberbank.ru:9443/api/v2/oauth"
 CHAT_URL = "https://api.giga.chat/v1/chat/completions"
 
-# Баллы за статус тезиса. Неправда (contradicted) вычитается.
 WEIGHTS = {"covered": 1.0, "partial": 0.5, "missing": 0.0, "contradicted": -1.0}
 
-EVAL_SYSTEM = """Ты проверяешь ответ пользователя на технический вопрос по DevOps.
-Тебе даны вопрос, пронумерованный список эталонных тезисов и ответ пользователя.
+EVAL_SYSTEM = """Ты проверяешь ответ пользователя на технический вопрос по DevOps / Kubernetes.
 
-Для КАЖДОГО тезиса выбери ровно один статус:
-- covered: в ответе по смыслу сказано то же самое, пусть другими словами.
-- partial: сказана только часть тезиса или сказано расплывчато, без сути.
-- missing: в ответе про это ничего нет.
-- contradicted: в ответе прямо сказано обратное тому, что в тезисе. Простое отсутствие информации - это missing, а не contradicted.
+Тебе даны вопрос и ответ пользователя.
 
-Поле quote: точная цитата из ответа пользователя, на которой основан статус, скопированная дословно. Для missing - пустая строка.
-
-Правила:
-- Оценивай только тезисы из списка. Ничего не добавляй от себя.
-- Ничего не приписывай пользователю: цитируй только то, что реально написано.
-- Не оценивай стиль и не исправляй формулировки.
-- Не пиши оценок и пояснений.
+Сделай следующее:
+1. Напиши короткий эталонный ответ (3–6 предложений). Только факты, без воды.
+2. Сравни ответ пользователя с эталоном:
+   - что сказано правильно;
+   - что упущено или сказано неточно;
+   - есть ли грубые ошибки.
+3. Поставь общую оценку от 0 до 10.
 
 Верни только JSON, без текста до и после:
-{"items": [{"n": 1, "status": "covered", "quote": "..."}]}
-В items должно быть по одному элементу на каждый тезис, в том же порядке."""
+{
+  "reference": "эталонный ответ...",
+  "comparison": "сравнение...",
+  "score": 7.5
+}
+"""
 
 KEYPOINTS_SYSTEM = """Ты опытный DevOps-инженер, который проводит технические собеседования.
 Сформулируй 3-5 ключевых тезисов правильного ответа на вопрос.
@@ -156,55 +154,26 @@ def confidence_from_score(score: float) -> int:
 
 
 
-def parse_evaluation(raw: str, theses: list[str], answer: str) -> dict:
+def parse_evaluation(raw: str, answer: str) -> dict:
     data = _extract_json(raw)
-    by_n = {}
-
-    for it in data.get("items", []):
-        try:
-            by_n[int(it.get("n"))] = it
-        except (TypeError, ValueError):
-            continue
-
-    items = []
-    for i, thesis in enumerate(theses, start=1):
-        it = by_n.get(i, {})
-        status = it.get("status")
-
-        if status not in WEIGHTS:
-            status = "missing"
-
-        quote = (it.get("quote") or "").strip()
-        note = ""
-
-        if status == "missing":
-            quote = ""
-        elif not _quote_ok(quote, answer):
-            # модель утверждает, что тезис раскрыт, но подтвердить это
-            # цитатой из ответа не может: не засчитываем
-            status = "missing"
-            quote = ""
-            note = "Цитата не найдена в ответе, тезис не засчитан"
-
-        items.append({
-            "thesis": thesis,
-            "status": status,
-            "quote": quote,
-            "note": note,
-        })
-
-    return {"items": items, "score": calc_score(items)}
-
+    score = float(data.get("score", 0))
+    score = max(0.0, min(10.0, round(score, 1)))
+    return {
+        "reference": (data.get("reference") or "").strip(),
+        "comparison": (data.get("comparison") or "").strip(),
+        "score": score,
+        "items": [],          # оставляем для совместимости
+    }
 
 
 async def evaluate(question: str, theses: list[str], answer: str) -> dict:
-    numbered = "\n".join(f"{i}. {t}" for i, t in enumerate(theses, start=1))
-    user = f"Вопрос: {question}\n\nТезисы:\n{numbered}\n\nОтвет пользователя: {answer}"
+    # theses больше не используем, но сигнатуру оставляем
+    user = f"Вопрос: {question}\n\nОтвет пользователя: {answer}"
     last_error = None
     for _ in range(2):
-        raw, usage = await _chat(EVAL_SYSTEM, user)
+        raw, usage = await _chat(EVAL_SYSTEM, user, temperature=0.3)
         try:
-            result = parse_evaluation(raw, theses, answer)
+            result = parse_evaluation(raw, answer)
         except ValueError as e:
             last_error = e
             continue
