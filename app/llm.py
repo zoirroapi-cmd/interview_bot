@@ -219,6 +219,16 @@ def parse_evaluation(
         "score": score,
         "items": items,
     }
+def confidence_from_score(score: float) -> int:
+    if score < 3:
+        return 1
+    if score < 5:
+        return 2
+    if score < 7:
+        return 3
+    if score < 9:
+        return 4
+    return 5
 async def evaluate(question: str, theses: list[str], answer: str) -> dict:
     user = (
         f"Вопрос: {question}\n\n"
