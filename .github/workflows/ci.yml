@@ -4,19 +4,17 @@ name: CI
 on:
   push:
     branches:
-<<<<<<< HEAD
       - main
       - develop
   pull_request:
     branches:
       - main
       - develop
-=======
+
       - [main, develop]
   pull_request:
     branches:
       - [main, develop]
->>>>>>> origin/develop
 
 jobs:
   test:
