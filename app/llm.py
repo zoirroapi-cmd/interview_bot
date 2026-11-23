@@ -1,8 +1,4 @@
-"""Проверка ответов через GigaChat.
-
-Модель ставит статус каждому эталонному тезису и приводит цитату из ответа.
-Оценку считает код (calc_score), а не модель.
-"""
+"""Проверка ответов через GigaChat по заранее подготовленным тезисам."""
 import json
 import logging
 import os
@@ -21,23 +17,31 @@ WEIGHTS = {"covered": 1.0, "partial": 0.5, "missing": 0.0, "contradicted": -1.0}
 
 EVAL_SYSTEM = """Ты проверяешь ответ пользователя на технический вопрос по DevOps / Kubernetes.
 
-Тебе даны вопрос и ответ пользователя.
+Даны вопрос, заранее подготовленные эталонные тезисы и ответ пользователя.
+Используй тезисы как критерии правильности и полноты. Не придумывай требования,
+которых нет в вопросе и тезисах.
 
-Сделай следующее:
-1. Напиши короткий эталонный ответ (3–6 предложений). Только факты, без воды.
-2. Сравни ответ пользователя с эталоном:
-   - что технически сказано правильно;
-   - какие важные технические моменты упущены или неточны;
-   - есть ли грубые фактические ошибки.
-   Оценивай только техническое содержание. Не комментируй грамматику, орфографию,
-   пунктуацию, опечатки, стиль и структуру речи.
-3. Поставь общую оценку от 0 до 10.
+Верни:
+1. Краткий эталонный ответ на 3–6 предложений, составленный по тезисам.
+2. Краткое сравнение с ответом пользователя: какие технические идеи раскрыты,
+   какие важные моменты упущены или неточны, есть ли грубая фактическая ошибка.
+   Не перечисляй тезисы по одному — дай связное резюме.
+3. Массив items: ровно один объект на каждый тезис, в том же порядке, с его номером
+   и статусом. Статусы: covered (смысл раскрыт), partial (раскрыт частично),
+   missing (не упомянут), contradicted (пользователь утверждает обратное).
+
+Оценивай только техническое содержание. Не комментируй грамматику, орфографию,
+пунктуацию, опечатки, стиль или структуру речи. Не ставь числовую оценку: её
+посчитает приложение по статусам.
 
 Верни только JSON, без текста до и после:
 {
   "reference": "эталонный ответ...",
-  "comparison": "сравнение...",
-  "score": 7.5
+  "comparison": "связное сравнение по техническому содержанию...",
+  "items": [
+    {"n": 1, "status": "covered"},
+    {"n": 2, "status": "partial"}
+  ]
 }
 """
 
@@ -159,31 +163,48 @@ def confidence_from_score(score: float) -> int:
 
 
 
-def parse_evaluation(raw: str, answer: str) -> dict:
+def parse_evaluation(raw: str, answer: str, theses: list[str]) -> dict:
     data = _extract_json(raw)
     if not isinstance(data, dict):
         raise ValueError("ответ модели должен быть JSON-объектом")
-    try:
-        score = float(str(data.get("score", 0)).replace(",", "."))
-    except (TypeError, ValueError) as error:
-        raise ValueError("score не число") from error
-    score = max(0.0, min(10.0, round(score, 1)))
+    if not theses:
+        raise ValueError("для оценки нет эталонных тезисов")
+
+    items = data.get("items")
+    if not isinstance(items, list) or len(items) != len(theses):
+        raise ValueError("число оценённых тезисов не совпадает с эталоном")
+
+    normalized_items = []
+    for index, item in enumerate(items, start=1):
+        if not isinstance(item, dict):
+            raise ValueError(f"оценка тезиса {index} должна быть JSON-объектом")
+        status = item.get("status")
+        if status not in WEIGHTS:
+            raise ValueError(f"неизвестный статус тезиса {index}: {status!r}")
+        normalized_items.append({"n": index, "status": status})
+
     return {
         "reference": _text(data.get("reference")),
         "comparison": _text(data.get("comparison")),
-        "score": score,
-        "items": [],
+        "score": calc_score(normalized_items),
+        "items": normalized_items,
     }
 
 
 async def evaluate(question: str, theses: list[str], answer: str) -> dict:
-    # theses больше не используем, но сигнатуру оставляем
-    user = f"Вопрос: {question}\n\nОтвет пользователя: {answer}"
+    numbered_theses = "\n".join(
+        f"{index}. {thesis}" for index, thesis in enumerate(theses, start=1)
+    )
+    user = (
+        f"Вопрос: {question}\n\n"
+        f"Эталонные тезисы:\n{numbered_theses}\n\n"
+        f"Ответ пользователя:\n{answer}"
+    )
     last_error = None
     for _ in range(2):
         raw, usage = await _chat(EVAL_SYSTEM, user, temperature=0.3)
         try:
-            result = parse_evaluation(raw, answer)
+            result = parse_evaluation(raw, answer, theses)
         except (ValueError, TypeError, AttributeError) as e:
             log.warning("не разобран ответ модели: %s | raw=%r", e, raw[:500])
             last_error = e

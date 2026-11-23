@@ -1,68 +1,96 @@
+import asyncio
 import json
 
-from app.llm import (
-    calc_score,
-    confidence_from_score,
-    parse_evaluation,
-)
+import pytest
+
+from app import llm
 
 ANSWER = "NAT позволяет нескольким устройствам использовать один публичный IP."
+THESES = [
+    "NAT преобразует сетевые адреса.",
+    "PAT позволяет нескольким устройствам делить один публичный IPv4-адрес.",
+]
 
 
-def make_raw(score=7.5, reference=None, comparison=None):
+def make_raw(statuses, reference="Эталонный ответ.", comparison="Краткое сравнение."):
     return json.dumps({
-        "reference": reference or (
-            "NAT позволяет нескольким устройствам использовать один публичный IP."
-        ),
-        "comparison": comparison or "Ответ правильный, но недостаточно подробный.",
-        "score": score,
+        "reference": reference,
+        "comparison": comparison,
+        "items": [
+            {"n": index, "status": status}
+            for index, status in enumerate(statuses, start=1)
+        ],
     })
 
 
-def test_parse_evaluation_returns_all_fields():
-    result = parse_evaluation(make_raw(), ANSWER)
+def test_parse_evaluation_scores_against_each_thesis():
+    raw = make_raw(["covered", "partial"])
 
-    assert result["reference"] == (
-        "NAT позволяет нескольким устройствам использовать один публичный IP."
-    )
-    assert result["comparison"] == "Ответ правильный, но недостаточно подробный."
-    assert result["score"] == 7.5
-    assert result["items"] == []
+    result = llm.parse_evaluation(raw, ANSWER, THESES)
 
-
-def test_score_is_clamped_and_rounded():
-    assert parse_evaluation(make_raw(15), ANSWER)["score"] == 10.0
-    assert parse_evaluation(make_raw(-5), ANSWER)["score"] == 0.0
-    assert parse_evaluation(make_raw(7.56), ANSWER)["score"] == 7.6
-
-
-def test_dict_fields_are_converted_to_text():
-    result = parse_evaluation(
-        make_raw(
-            reference={"эталон": "Полный ответ"},
-            comparison={"верно": "названы ключевые отличия"},
-        ),
-        ANSWER,
-    )
-
-    assert "эталон: Полный ответ" in result["reference"]
-    assert "верно: названы ключевые отличия" in result["comparison"]
-
-
-def test_calc_score_for_mixed_statuses():
-    items = [
-        {"status": "covered"},
-        {"status": "partial"},
-        {"status": "missing"},
-        {"status": "contradicted"},
+    assert result["reference"] == "Эталонный ответ."
+    assert result["comparison"] == "Краткое сравнение."
+    assert result["items"] == [
+        {"n": 1, "status": "covered"},
+        {"n": 2, "status": "partial"},
     ]
+    assert result["score"] == 7.5
 
-    assert calc_score(items) == 1.2
+
+def test_score_is_zero_for_all_contradicted_theses_and_capped_at_ten():
+    assert llm.parse_evaluation(
+        make_raw(["contradicted", "contradicted"]), ANSWER, THESES
+    )["score"] == 0.0
+    assert llm.parse_evaluation(
+        make_raw(["covered", "covered"],), ANSWER, THESES
+    )["score"] == 10.0
+
+
+def test_parse_evaluation_normalizes_object_fields():
+    raw = make_raw(
+        ["covered", "missing"],
+        reference={"эталон": "Полный ответ"},
+        comparison={"верно": "раскрыта первая мысль"},
+    )
+
+    result = llm.parse_evaluation(raw, ANSWER, THESES)
+
+    assert result["reference"] == "эталон: Полный ответ"
+    assert result["comparison"] == "верно: раскрыта первая мысль"
+
+
+@pytest.mark.parametrize(
+    "statuses",
+    [["covered"], ["covered", "unknown"]],
+)
+def test_parse_evaluation_rejects_missing_or_unknown_thesis_statuses(statuses):
+    with pytest.raises(ValueError):
+        llm.parse_evaluation(make_raw(statuses), ANSWER, THESES)
+
+
+def test_evaluate_includes_precomputed_theses_in_model_request(monkeypatch):
+    captured = {}
+
+    async def fake_chat(system, user, temperature=0.2):
+        captured["system"] = system
+        captured["user"] = user
+        captured["temperature"] = temperature
+        return make_raw(["covered", "partial"]), {"total_tokens": 42}
+
+    monkeypatch.setattr(llm, "_chat", fake_chat)
+    result = asyncio.run(llm.evaluate("Что такое NAT?", THESES, ANSWER))
+
+    assert "1. NAT преобразует сетевые адреса." in captured["user"]
+    assert "2. PAT позволяет нескольким устройствам делить один публичный IPv4-адрес." in captured["user"]
+    assert ANSWER in captured["user"]
+    assert "Не комментируй грамматику" in captured["system"]
+    assert result["score"] == 7.5
+    assert result["usage"] == {"total_tokens": 42}
 
 
 def test_confidence_from_score_boundaries():
-    assert confidence_from_score(0) == 1
-    assert confidence_from_score(3) == 2
-    assert confidence_from_score(5) == 3
-    assert confidence_from_score(7) == 4
-    assert confidence_from_score(9) == 5
+    assert llm.confidence_from_score(0) == 1
+    assert llm.confidence_from_score(3) == 2
+    assert llm.confidence_from_score(5) == 3
+    assert llm.confidence_from_score(7) == 4
+    assert llm.confidence_from_score(9) == 5
