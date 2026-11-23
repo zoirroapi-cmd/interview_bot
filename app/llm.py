@@ -189,14 +189,21 @@ async def evaluate(question: str, theses: list[str], answer: str) -> dict:
     numbered_theses = "\n".join(
         f"{index}. {thesis}" for index, thesis in enumerate(theses, start=1)
     )
-    items_template = json.dumps(
-        [{"n": index, "status": ""} for index in range(1, len(theses) + 1)],
+    response_template = json.dumps(
+        {
+            "comparison": "краткое сравнение",
+            "items": [
+                {"n": index, "status": ""}
+                for index in range(1, len(theses) + 1)
+            ],
+        },
         ensure_ascii=False,
     )
     system = (
         f"{EVAL_SYSTEM}\n\n"
-        f"Структура массива items для этих {len(theses)} тезисов: "
-        f"{items_template}. Заполни каждое пустое поле status одним из разрешённых статусов."
+        f"Пример структуры полного ответа (число элементов строго {len(theses)}): "
+        f"{response_template}. Пустые значения status нужно заменить на один из "
+        "разрешённых статусов."
     )
     user = (
         f"Вопрос: {question}\n\n"

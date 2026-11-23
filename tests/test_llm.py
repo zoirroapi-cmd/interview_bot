@@ -81,6 +81,7 @@ def test_evaluate_includes_precomputed_theses_in_model_request(monkeypatch):
     assert "1. NAT преобразует сетевые адреса." in captured["user"]
     assert "2. PAT позволяет нескольким устройствам делить один публичный IPv4-адрес." in captured["user"]
     assert "Эталонные тезисы: 2. В items верни ровно 2 записи" in captured["user"]
+    assert '"comparison": "краткое сравнение"' in captured["system"]
     assert '"n": 2, "status": ""' in captured["system"]
     assert ANSWER in captured["user"]
     assert "Не комментируй грамматику" in captured["system"]
