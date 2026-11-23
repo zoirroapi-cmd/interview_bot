@@ -12,9 +12,8 @@ THESES = [
 ]
 
 
-def make_raw(statuses, reference="Эталонный ответ.", comparison="Краткое сравнение."):
+def make_raw(statuses, comparison="Краткое сравнение."):
     return json.dumps({
-        "reference": reference,
         "comparison": comparison,
         "items": [
             {"n": index, "status": status}
@@ -28,7 +27,7 @@ def test_parse_evaluation_scores_against_each_thesis():
 
     result = llm.parse_evaluation(raw, ANSWER, THESES)
 
-    assert result["reference"] == "Эталонный ответ."
+    assert result["reference"] == " ".join(THESES)
     assert result["comparison"] == "Краткое сравнение."
     assert result["items"] == [
         {"n": 1, "status": "covered"},
@@ -49,13 +48,12 @@ def test_score_is_zero_for_all_contradicted_theses_and_capped_at_ten():
 def test_parse_evaluation_normalizes_object_fields():
     raw = make_raw(
         ["covered", "missing"],
-        reference={"эталон": "Полный ответ"},
         comparison={"верно": "раскрыта первая мысль"},
     )
 
     result = llm.parse_evaluation(raw, ANSWER, THESES)
 
-    assert result["reference"] == "эталон: Полный ответ"
+    assert result["reference"] == " ".join(THESES)
     assert result["comparison"] == "верно: раскрыта первая мысль"
 
 
