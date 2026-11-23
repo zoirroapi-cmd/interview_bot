@@ -92,3 +92,18 @@ def test_unknown_status_is_treated_as_missing():
 
     assert result["items"][0]["status"] == "missing"
     assert result["score"] == 0.0
+
+def test_parse_evaluation_accepts_object_fields():
+    raw = json.dumps({
+        "reference": {"summary": "Эталонный ответ"},
+        "comparison": {"strength": "Ответ раскрывает основные отличия"},
+        "items": [{"status": "covered", "quote": ANSWER}],
+    })
+
+    result = parse_evaluation(raw, [ANSWER], ANSWER)
+
+    assert result["reference"] == '{"summary": "Эталонный ответ"}'
+    assert result["comparison"] == (
+        '{"strength": "Ответ раскрывает основные отличия"}'
+    )
+    assert result["score"] == 10.0
