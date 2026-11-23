@@ -160,7 +160,7 @@ def confidence_from_score(score: float) -> int:
 def parse_evaluation(raw: str, answer: str, theses: list[str]) -> dict:
     data = _extract_json(raw)
     if not isinstance(data, dict):
-        raise ValueError("ответ модели должен быть JSON-объектом")
+        raise TypeError("ответ модели должен быть JSON-объектом")
     if not theses:
         raise ValueError("для оценки нет эталонных тезисов")
 
@@ -171,7 +171,7 @@ def parse_evaluation(raw: str, answer: str, theses: list[str]) -> dict:
     normalized_items = []
     for index, item in enumerate(items, start=1):
         if not isinstance(item, dict):
-            raise ValueError(f"оценка тезиса {index} должна быть JSON-объектом")
+            raise TypeError(f"оценка тезиса {index} должна быть JSON-объектом")
         status = item.get("status")
         if status not in WEIGHTS:
             raise ValueError(f"неизвестный статус тезиса {index}: {status!r}")
