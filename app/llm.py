@@ -4,12 +4,15 @@
 Оценку считает код (calc_score), а не модель.
 """
 import json
+import logging
 import os
 import re
 import time
 import uuid
 
 import aiohttp
+
+log = logging.getLogger(__name__)
 
 AUTH_URL = "https://ngw.devices.sberbank.ru:9443/api/v2/oauth"
 CHAT_URL = "https://api.giga.chat/v1/chat/completions"
@@ -37,7 +40,6 @@ EVAL_SYSTEM = """Ты проверяешь ответ пользователя �
   "score": 7.5
 }
 """
-
 
 KEYPOINTS_SYSTEM = """Ты опытный DevOps-инженер, который проводит технические собеседования.
 Сформулируй 3-5 ключевых тезисов правильного ответа на вопрос.
@@ -157,20 +159,6 @@ def confidence_from_score(score: float) -> int:
 
 
 
-def _as_text(value) -> str:
-    """Преобразует поля модели в текст, даже если пришли JSON-объектом."""
-    if value is None:
-        return ""
-    if isinstance(value, str):
-        return value.strip()
-    if isinstance(value, dict):
-        parts = (f"{key}: {_as_text(item)}" for key, item in value.items())
-        return "\n".join(part for part in parts if not part.endswith(": "))
-    if isinstance(value, list):
-        return "\n".join(f"• {_as_text(item)}" for item in value if _as_text(item))
-    return str(value).strip()
-
-
 def parse_evaluation(raw: str, answer: str) -> dict:
     data = _extract_json(raw)
     if not isinstance(data, dict):
@@ -181,28 +169,28 @@ def parse_evaluation(raw: str, answer: str) -> dict:
         raise ValueError("score не число") from error
     score = max(0.0, min(10.0, round(score, 1)))
     return {
-        "reference": _as_text(data.get("reference")),
-        "comparison": _as_text(data.get("comparison")),
+        "reference": _text(data.get("reference")),
+        "comparison": _text(data.get("comparison")),
         "score": score,
         "items": [],
     }
 
 
 async def evaluate(question: str, theses: list[str], answer: str) -> dict:
+    # theses больше не используем, но сигнатуру оставляем
     user = f"Вопрос: {question}\n\nОтвет пользователя: {answer}"
     last_error = None
     for _ in range(2):
         raw, usage = await _chat(EVAL_SYSTEM, user, temperature=0.3)
         try:
             result = parse_evaluation(raw, answer)
-        except (ValueError, TypeError, AttributeError) as error:
-            log.warning("не разобран ответ модели: %s | raw=%r", error, raw[:500])
-            last_error = error
+        except (ValueError, TypeError, AttributeError) as e:
+            log.warning("не разобран ответ модели: %s | raw=%r", e, raw[:500])
+            last_error = e
             continue
         result["usage"] = usage
         return result
     raise ValueError(f"не удалось разобрать ответ модели: {last_error}")
-
 
 async def generate_key_points(question: str, topic: str) -> list[str]:
     raw, _ = await _chat(KEYPOINTS_SYSTEM, f"Тема: {topic}\nВопрос: {question}")
@@ -216,3 +204,16 @@ async def generate_key_points(question: str, topic: str) -> list[str]:
     if not 2 <= len(points) <= 8:
         raise ValueError(f"странное число тезисов: {len(points)}")
     return points
+
+def _text(value) -> str:
+    """Модель иногда возвращает dict/list вместо строки: приводим к тексту."""
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value.strip()
+    if isinstance(value, dict):
+        parts = (f"{k}: {_text(v)}" for k, v in value.items())
+        return "\n".join(p for p in parts if not p.endswith(": "))
+    if isinstance(value, list):
+        return "\n".join(f"• {_text(v)}" for v in value if _text(v))
+    return str(value).strip()
