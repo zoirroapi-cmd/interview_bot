@@ -178,6 +178,13 @@ async def nothing_found(message: Message) -> None:
     await message.answer("Подходящих вопросов нет.", reply_markup=markup([("🏠 В меню", "m:home")]))
 
 
+@dp.callback_query(F.data == "m:home")
+async def cb_home(cb: CallbackQuery, state: FSMContext) -> None:
+    await cb.answer()
+    await state.clear()
+    await show(cb.message, await menu_text(cb.from_user.id), menu_markup())
+
+
 # ======================= онбординг и настройки =======================
 
 class Setup(StatesGroup):
