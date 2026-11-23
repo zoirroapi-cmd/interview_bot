@@ -190,21 +190,24 @@ async def evaluate(question: str, theses: list[str], answer: str) -> dict:
         f"{index}. {thesis}" for index, thesis in enumerate(theses, start=1)
     )
     items_template = json.dumps(
-        [{"n": index, "status": None} for index in range(1, len(theses) + 1)],
+        [{"n": index, "status": ""} for index in range(1, len(theses) + 1)],
         ensure_ascii=False,
+    )
+    system = (
+        f"{EVAL_SYSTEM}\n\n"
+        f"Структура массива items для этих {len(theses)} тезисов: "
+        f"{items_template}. Заполни каждое пустое поле status одним из разрешённых статусов."
     )
     user = (
         f"Вопрос: {question}\n\n"
         f"Эталонные тезисы: {len(theses)}. В items верни ровно {len(theses)} "
         f"записи; номера — от 1 до {len(theses)}:\n"
         f"{numbered_theses}\n\n"
-        f"Форма массива items для всех этих номеров: {items_template}. "
-        "Замени null на статус каждого тезиса, не оставляй null.\n\n"
         f"Ответ пользователя:\n{answer}"
     )
     last_error = None
     for _ in range(2):
-        raw, usage = await _chat(EVAL_SYSTEM, user, temperature=0.3)
+        raw, usage = await _chat(system, user, temperature=0.3)
         try:
             result = parse_evaluation(raw, answer, theses)
         except (ValueError, TypeError, AttributeError) as e:
