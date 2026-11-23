@@ -1,75 +1,52 @@
 import json
 
-from app.llm import calc_score, parse_evaluation
+from app.llm import (
+    calc_score,
+    confidence_from_score,
+    parse_evaluation,
+)
 
 ANSWER = "NAT позволяет нескольким устройствам использовать один публичный IP."
 
 
-def make_raw(status, quote=""):
+def make_raw(score=7.5, reference=None, comparison=None):
     return json.dumps({
-        "items": [
-            {"n": 1, "status": status, "quote": quote}
-        ]
+        "reference": reference or (
+            "NAT позволяет нескольким устройствам использовать один публичный IP."
+        ),
+        "comparison": comparison or "Ответ правильный, но недостаточно подробный.",
+        "score": score,
     })
 
 
-def test_covered_gets_full_score():
+def test_parse_evaluation_returns_all_fields():
+    result = parse_evaluation(make_raw(), ANSWER)
+
+    assert result["reference"] == (
+        "NAT позволяет нескольким устройствам использовать один публичный IP."
+    )
+    assert result["comparison"] == "Ответ правильный, но недостаточно подробный."
+    assert result["score"] == 7.5
+    assert result["items"] == []
+
+
+def test_score_is_clamped_and_rounded():
+    assert parse_evaluation(make_raw(15), ANSWER)["score"] == 10.0
+    assert parse_evaluation(make_raw(-5), ANSWER)["score"] == 0.0
+    assert parse_evaluation(make_raw(7.56), ANSWER)["score"] == 7.6
+
+
+def test_dict_fields_are_converted_to_text():
     result = parse_evaluation(
-        make_raw("covered", ANSWER),
-        ["NAT позволяет нескольким устройствам использовать один публичный IP."],
+        make_raw(
+            reference={"эталон": "Полный ответ"},
+            comparison={"верно": "названы ключевые отличия"},
+        ),
         ANSWER,
     )
 
-    assert result["items"][0]["status"] == "covered"
-    assert result["score"] == 10.0
-
-
-def test_partial_gets_half_score():
-    result = parse_evaluation(
-        make_raw("partial", "использовать один публичный IP"),
-        ["NAT позволяет нескольким устройствам использовать один публичный IP."],
-        ANSWER,
-    )
-
-    assert result["items"][0]["status"] == "partial"
-    assert result["score"] == 5.0
-
-
-def test_missing_gets_zero_score():
-    result = parse_evaluation(
-        make_raw("missing"),
-        ["NAT позволяет нескольким устройствам использовать один публичный IP."],
-        ANSWER,
-    )
-
-    assert result["items"][0]["status"] == "missing"
-    assert result["items"][0]["quote"] == ""
-    assert result["score"] == 0.0
-
-
-def test_contradicted_loses_points_but_score_is_not_negative():
-    result = parse_evaluation(
-        make_raw("contradicted", "NAT не позволяет использовать один публичный IP"),
-        ["NAT позволяет нескольким устройствам использовать один публичный IP."],
-        ANSWER,
-    )
-
-    assert result["items"][0]["status"] == "contradicted"
-    assert result["score"] == 0.0
-
-
-def test_invalid_quote_turns_covered_into_missing():
-    result = parse_evaluation(
-        make_raw("covered", "совершенно посторонняя цитата"),
-        ["NAT позволяет нескольким устройствам использовать один публичный IP."],
-        ANSWER,
-    )
-
-    item = result["items"][0]
-    assert item["status"] == "missing"
-    assert item["quote"] == ""
-    assert item["note"]
-    assert result["score"] == 0.0
+    assert "эталон: Полный ответ" in result["reference"]
+    assert "верно: названы ключевые отличия" in result["comparison"]
 
 
 def test_calc_score_for_mixed_statuses():
@@ -83,27 +60,9 @@ def test_calc_score_for_mixed_statuses():
     assert calc_score(items) == 1.2
 
 
-def test_unknown_status_is_treated_as_missing():
-    result = parse_evaluation(
-        make_raw("unknown_status", ANSWER),
-        ["NAT позволяет нескольким устройствам использовать один публичный IP."],
-        ANSWER,
-    )
-
-    assert result["items"][0]["status"] == "missing"
-    assert result["score"] == 0.0
-
-def test_parse_evaluation_accepts_object_fields():
-    raw = json.dumps({
-        "reference": {"summary": "Эталонный ответ"},
-        "comparison": {"strength": "Ответ раскрывает основные отличия"},
-        "items": [{"status": "covered", "quote": ANSWER}],
-    })
-
-    result = parse_evaluation(raw, [ANSWER], ANSWER)
-
-    assert result["reference"] == '{"summary": "Эталонный ответ"}'
-    assert result["comparison"] == (
-        '{"strength": "Ответ раскрывает основные отличия"}'
-    )
-    assert result["score"] == 10.0
+def test_confidence_from_score_boundaries():
+    assert confidence_from_score(0) == 1
+    assert confidence_from_score(3) == 2
+    assert confidence_from_score(5) == 3
+    assert confidence_from_score(7) == 4
+    assert confidence_from_score(9) == 5
