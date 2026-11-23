@@ -189,11 +189,17 @@ async def evaluate(question: str, theses: list[str], answer: str) -> dict:
     numbered_theses = "\n".join(
         f"{index}. {thesis}" for index, thesis in enumerate(theses, start=1)
     )
+    items_template = json.dumps(
+        [{"n": index, "status": None} for index in range(1, len(theses) + 1)],
+        ensure_ascii=False,
+    )
     user = (
         f"Вопрос: {question}\n\n"
         f"Эталонные тезисы: {len(theses)}. В items верни ровно {len(theses)} "
         f"записи; номера — от 1 до {len(theses)}:\n"
         f"{numbered_theses}\n\n"
+        f"Форма массива items для всех этих номеров: {items_template}. "
+        "Замени null на статус каждого тезиса, не оставляй null.\n\n"
         f"Ответ пользователя:\n{answer}"
     )
     last_error = None
