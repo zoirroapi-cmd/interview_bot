@@ -162,7 +162,7 @@ def confidence_from_score(score: float) -> int:
 def parse_evaluation(raw: str, answer: str) -> dict:
     data = _extract_json(raw)
     if not isinstance(data, dict):
-        raise ValueError("ответ модели должен быть JSON-объектом")
+        raise TypeError("ответ модели должен быть JSON-объектом")
     try:
         score = float(str(data.get("score", 0)).replace(",", "."))
     except (TypeError, ValueError) as error:
